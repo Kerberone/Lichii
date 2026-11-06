@@ -20,6 +20,7 @@
 #include "common/scope_exit.h"
 #include "video_core/renderer_vulkan/maxwell_to_vk.h"
 #include "video_core/renderer_vulkan/pipeline_statistics.h"
+#include "video_core/renderer_vulkan/pipeline_trace.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
 #include "video_core/renderer_vulkan/vk_frame_dump.h"
 #include "video_core/renderer_vulkan/vk_graphics_pipeline.h"
@@ -351,17 +352,46 @@ GraphicsPipeline::GraphicsPipeline(
                 shader_notify->MarkShaderComplete();
             }
         };
+        const bool pipe_trace = PipeTrace::Enabled();
+        const char* trace_phase = "emit";
+        auto trace_begin = begin;
         try {
             if (emit_stages) {
+                if (pipe_trace) {
+                    LOG_ERROR(Render_Vulkan, "PIPE emit graphics begin key={:016x}{}", key.Hash(),
+                              PipeTrace::Stages(key.unique_hashes));
+                }
                 spv_modules = emit_stages();
+                if (pipe_trace) {
+                    LOG_ERROR(Render_Vulkan, "PIPE emit graphics done key={:016x} ms={:.1f}",
+                              key.Hash(), PipeTrace::Ms(trace_begin));
+                }
             }
+            trace_phase = "drv";
+            trace_begin = std::chrono::steady_clock::now();
             const VkRenderPass render_pass{render_pass_cache.Get(MakeRenderPassKey(key.state, device))};
             Validate();
+            if (pipe_trace) {
+                LOG_ERROR(Render_Vulkan, "PIPE drv graphics begin key={:016x}{}", key.Hash(),
+                          PipeTrace::Stages(key.unique_hashes));
+            }
             MakePipeline(render_pass);
+            if (pipe_trace) {
+                LOG_ERROR(Render_Vulkan, "PIPE drv graphics done key={:016x} ms={:.1f}",
+                          key.Hash(), PipeTrace::Ms(trace_begin));
+            }
         } catch (const Shader::Exception& exception) {
+            if (pipe_trace) {
+                LOG_ERROR(Render_Vulkan, "PIPE {} graphics fail key={:016x} ms={:.1f} error={}",
+                          trace_phase, key.Hash(), PipeTrace::Ms(trace_begin), exception.what());
+            }
             LOG_ERROR(Render_Vulkan, "Graphics pipeline {:016x}: {}", key.Hash(), exception.what());
             throw;
         } catch (const vk::Exception& exception) {
+            if (pipe_trace) {
+                LOG_ERROR(Render_Vulkan, "PIPE {} graphics fail key={:016x} ms={:.1f} error={}",
+                          trace_phase, key.Hash(), PipeTrace::Ms(trace_begin), exception.what());
+            }
             LOG_CRITICAL(Render_Vulkan,
                          "Graphics pipeline build failed: {} (stages: tcs={} tes={} geom={}, "
                          "patch control points {}, device max patch size {})",

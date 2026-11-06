@@ -41,6 +41,7 @@
 #include "video_core/renderer_vulkan/pipeline_helper.h"
 #include "video_core/renderer_vulkan/pipeline_shader_emission.h"
 #include "video_core/renderer_vulkan/pipeline_statistics.h"
+#include "video_core/renderer_vulkan/pipeline_trace.h"
 #include "video_core/renderer_vulkan/vertex_repack.h"
 #include "video_core/renderer_vulkan/vk_compute_pipeline.h"
 #include "video_core/renderer_vulkan/vk_descriptor_pool.h"
@@ -890,7 +891,16 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
 
         workers.QueueWork([this, key, env_ = std::move(env), &state, &callback]() mutable {
             ShaderPools pools;
+            const auto trace_begin = std::chrono::steady_clock::now();
+            if (PipeTrace::Enabled()) {
+                LOG_ERROR(Render_Vulkan, "PIPE cache compute begin cs={:016x}", key.unique_hash);
+            }
             auto entry{CreateComputePipeline(pools, key, env_, state.statistics.get(), false)};
+            if (PipeTrace::Enabled()) {
+                LOG_ERROR(Render_Vulkan, "PIPE cache compute {} cs={:016x} ms={:.1f}",
+                          entry.pipeline ? "done" : "fail", key.unique_hash,
+                          PipeTrace::Ms(trace_begin));
+            }
             std::scoped_lock lock{state.mutex};
             if (entry.pipeline) {
                 compute_cache.emplace(key, std::move(entry));
@@ -963,8 +973,18 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
                         for (auto& env : envs) {
                             env_ptrs.push_back(&env);
                         }
+                        const auto trace_begin = std::chrono::steady_clock::now();
+                        if (PipeTrace::Enabled()) {
+                            LOG_ERROR(Render_Vulkan, "PIPE prebuild graphics begin key={:016x}{}",
+                                      key.Hash(), PipeTrace::Stages(key.unique_hashes));
+                        }
                         auto pipeline =
                             CreateGraphicsPipeline(pools, key, MakeSpan(env_ptrs), nullptr, false);
+                        if (PipeTrace::Enabled()) {
+                            LOG_ERROR(Render_Vulkan, "PIPE prebuild graphics {} key={:016x} ms={:.1f}",
+                                      pipeline && !pipeline->Failed() ? "done" : "fail",
+                                      key.Hash(), PipeTrace::Ms(trace_begin));
+                        }
                         if (pipeline && pipeline->Failed()) {
                             return std::unique_ptr<GraphicsPipeline>{};
                         }
@@ -982,8 +1002,18 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
             for (auto& env : envs_) {
                 env_ptrs.push_back(&env);
             }
+            const auto trace_begin = std::chrono::steady_clock::now();
+            if (PipeTrace::Enabled()) {
+                LOG_ERROR(Render_Vulkan, "PIPE cache graphics begin key={:016x}{}", key.Hash(),
+                          PipeTrace::Stages(key.unique_hashes));
+            }
             auto pipeline{CreateGraphicsPipeline(pools, key, MakeSpan(env_ptrs),
                                                  state.statistics.get(), false)};
+            if (PipeTrace::Enabled()) {
+                LOG_ERROR(Render_Vulkan, "PIPE cache graphics {} key={:016x} ms={:.1f}",
+                          pipeline && !pipeline->Failed() ? "done" : "fail", key.Hash(),
+                          PipeTrace::Ms(trace_begin));
+            }
 
             std::scoped_lock lock{state.mutex};
             if (pipeline) {
@@ -1465,7 +1495,17 @@ void ReportRuntimePipeline(const char* kind, std::chrono::steady_clock::time_poi
 
 std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
     const auto begin = std::chrono::steady_clock::now();
+    // Translation on the GPU thread; the emission and driver compile may follow on a worker.
+    const bool pipe_trace = PipeTrace::Enabled();
+    if (pipe_trace) {
+        LOG_ERROR(Render_Vulkan, "PIPE rt graphics begin key={:016x}{}", graphics_key.Hash(),
+                  PipeTrace::Stages(graphics_key.unique_hashes));
+    }
     SCOPE_EXIT {
+        if (pipe_trace) {
+            LOG_ERROR(Render_Vulkan, "PIPE rt graphics end key={:016x} ms={:.1f}",
+                      graphics_key.Hash(), PipeTrace::Ms(begin));
+        }
         std::string shaders = fmt::format("pipeline={:016x}", graphics_key.Hash());
         for (size_t stage = 0; stage < graphics_key.unique_hashes.size(); ++stage) {
             if (graphics_key.unique_hashes[stage] != 0) {
@@ -1522,7 +1562,15 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
 ComputePipelineCacheEntry PipelineCache::CreateComputePipeline(
     const ComputePipelineCacheKey& key, const ShaderInfo* shader) {
     const auto begin = std::chrono::steady_clock::now();
+    const bool pipe_trace = PipeTrace::Enabled();
+    if (pipe_trace) {
+        LOG_ERROR(Render_Vulkan, "PIPE rt compute begin cs={:016x}", key.unique_hash);
+    }
     SCOPE_EXIT {
+        if (pipe_trace) {
+            LOG_ERROR(Render_Vulkan, "PIPE rt compute end cs={:016x} ms={:.1f}", key.unique_hash,
+                      PipeTrace::Ms(begin));
+        }
         ReportRuntimePipeline("Compute", begin,
                               fmt::format("pipeline={:016x} s6:{:016x} address={:#x}", key.Hash(),
                                           key.unique_hash,

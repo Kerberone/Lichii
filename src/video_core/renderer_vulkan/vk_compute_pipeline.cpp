@@ -16,6 +16,7 @@
 
 #include "video_core/renderer_vulkan/pipeline_helper.h"
 #include "video_core/renderer_vulkan/pipeline_statistics.h"
+#include "video_core/renderer_vulkan/pipeline_trace.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
 #include "video_core/renderer_vulkan/vk_compute_pipeline.h"
 #include "video_core/renderer_vulkan/vk_descriptor_pool.h"
@@ -294,9 +295,22 @@ ComputePipeline::ComputePipeline(const Device& device_, Scheduler& scheduler, vk
             return std::chrono::duration<double>(std::chrono::steady_clock::now() - build_start)
                 .count();
         };
+        const bool pipe_trace = PipeTrace::Enabled();
+        if (pipe_trace) {
+            LOG_ERROR(Render_Vulkan, "PIPE drv compute begin cs={:016x} deferred={}", shader_hash,
+                      skip_until_built);
+        }
         try {
             pipeline = device.GetLogical().CreateComputePipeline(compute_ci, *pipeline_cache);
+            if (pipe_trace) {
+                LOG_ERROR(Render_Vulkan, "PIPE drv compute done cs={:016x} ms={:.1f}", shader_hash,
+                          build_seconds() * 1000.0);
+            }
         } catch (const vk::Exception& exception) {
+            if (pipe_trace) {
+                LOG_ERROR(Render_Vulkan, "PIPE drv compute fail cs={:016x} ms={:.1f} error={}",
+                          shader_hash, build_seconds() * 1000.0, exception.what());
+            }
             LOG_CRITICAL(Render_Vulkan, "Driver rejected compute shader {:016X} after {:.1f} s: {}",
                          shader_hash, build_seconds(), exception.what());
             std::scoped_lock lock{build_mutex};
