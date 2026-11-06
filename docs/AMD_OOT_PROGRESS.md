@@ -25,7 +25,7 @@ bundle/patch backup of `01dbfc5` was handed over as session files meanwhile. Pus
 | 3 | Port pipeline trace 2e46a01 + 31390c3 (`EDEN_NX2_PIPE_TRACE=1`) | done `1dd1879`, Windows build OK |
 | 4 | Workflow: run on work branch, artifact `amd-hmma-trace-build-4` | done `656d449` |
 | 5 | Windows CI run (Windows only, per owner) | success, run 4 |
-| 6 | PR to base (no merge) | todo |
+| 6 | PR to base (no merge) | open: https://github.com/Kerberone/Lichii/pull/1 |
 
 ## Not to integrate (per owner)
 Whole PR #223, PR #216, resolution experiments, global GPU-only memory changes, global shader
@@ -115,4 +115,4 @@ flushes on Error, so lines survive a crash. Unset: no new lines, no behaviour ch
 4. A/B: `EDEN_NX2_DEFER_MATRIX_PIPELINES=0` restores the build 3 behaviour for HMMA shaders.
 
 ## Next action
-PR to `audit/windows-pgo-validated` (no merge). Then wait for owner logs from the RX 6600.
+Wait for owner logs from the RX 6600 (normal run + `EDEN_NX2_PIPE_TRACE=1` run). PR #1 stays unmerged.
