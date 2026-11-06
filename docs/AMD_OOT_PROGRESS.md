@@ -12,13 +12,9 @@ upstream AMD fixes #210/#206, nested config array fix, disabled update checker, 
 - Upstream source of patches: `https://github.com/zortos293/Lichii` (PR #149, #223)
 
 ## Last published commit
-NOTHING PUBLISHED YET. Every push to Kerberone/Lichii (git and GitHub API) is refused with
-403 "Resource not accessible by integration": the Claude GitHub App has no write access.
-Fix: install/reconnect the Claude GitHub App for Kerberone/Lichii with Contents write.
-Backups: `git bundle` + `git format-patch` series handed to the owner as session files
-(`amd-oot-build4.bundle`, `amd-oot-build4-patches/`). Restore:
-`git fetch amd-oot-build4.bundle test/amd-hmma-pipeline-trace:test/amd-hmma-pipeline-trace`
-or `git checkout -b test/amd-hmma-pipeline-trace c6baa72 && git am amd-oot-build4-patches/*.patch`.
+`origin/test/amd-hmma-pipeline-trace` = `01dbfc5` (verified with `git fetch` + `rev-parse`).
+Pushes were refused (403, no GitHub App write access) until the owner fixed permissions; the
+bundle/patch backup of `01dbfc5` was handed over as session files meanwhile. Pushing works now.
 
 ## Plan / status
 | # | Phase | Status |
