@@ -21,10 +21,10 @@ bundle/patch backup of `01dbfc5` was handed over as session files meanwhile. Pus
 |---|---|---|
 | 0 | Journal + branch | done |
 | 1 | Verify PR #149 fence fix (ceed7ca) already in build 3 | done (present) |
-| 2 | Port 2f067c1 (deferred AMD software HMMA compute pipelines) | done, local `aedb97f`, not compiled yet |
-| 3 | Port pipeline trace 2e46a01 + 31390c3 (`EDEN_NX2_PIPE_TRACE=1`) | done, local `1dd1879` (WIP until compiled) |
+| 2 | Port 2f067c1 (deferred AMD software HMMA compute pipelines) | done `aedb97f`, Windows build OK |
+| 3 | Port pipeline trace 2e46a01 + 31390c3 (`EDEN_NX2_PIPE_TRACE=1`) | done `1dd1879`, Windows build OK |
 | 4 | Workflow: run on work branch, artifact `amd-hmma-trace-build-4` | done `656d449` |
-| 5 | Windows CI run (Windows only, per owner) | running (see Tests) |
+| 5 | Windows CI run (Windows only, per owner) | success, run 4 |
 | 6 | PR to base (no merge) | todo |
 
 ## Not to integrate (per owner)
@@ -81,7 +81,18 @@ flushes on Error, so lines survive a crash. Unset: no new lines, no behaviour ch
 - Local Linux compile: NOT possible in the cloud session. CPM downloads of github.com
   release tarballs are refused by the session's network policy (HTTP 403); git fetch works.
 - CI compile checks instead:
-  - Windows PGO run 4 on `656d449`: https://github.com/Kerberone/Lichii/actions/runs/42215516056 (result: pending)
+  - Windows PGO run 4 on `656d449`: https://github.com/Kerberone/Lichii/actions/runs/42215516056 -> SUCCESS (21 min).
+    `lichii.exe` + `eden-cli.exe` linked (ninja 1807/1807; ccache 281 misses = changed TUs rebuilt).
+    Packaged AV1 smoke test (PATH = System32 only): "AV1 smoke: libdav1d decoded one 16x16 frame
+    with exact YUV pixels" -> FFmpeg/dav1d DLLs are in the package.
+    Artifact `amd-hmma-trace-build-4-windows-x86_64-pgo-656d449442101658cf9fd87b04dedfd50658824a`
+    (id 13500948888, 129 files, 106 MB, expires 2026-11-13):
+    https://github.com/Kerberone/Lichii/actions/runs/42215516056/artifacts/13500948888
+    Commits after `656d449` are docs-only (no binary change).
+  - Not verifiable from the cloud session: artifact/log download (blob hosts refused by the
+    network policy), so ZIP contents were not listed file by file.
+- Not run (needs the RX 6600 PC and the game): runtime behaviour with and without
+  `EDEN_NX2_PIPE_TRACE=1`, HMMA deferral in game, Mido sequence, crash reproduction.
   - `build-check.yml` (Linux) was dispatched once and cancelled at the owner's request:
     build 4 is Windows only. Do not run other OS builds.
 - Patch backup restore (`git am` and bundle) verified identical to `01dbfc5`.
@@ -91,7 +102,17 @@ flushes on Error, so lines survive a crash. Unset: no new lines, no behaviour ch
 - Unproven: abrupt exit happens inside a driver pipeline build call (trace will show last `begin` without `end`).
 
 ## WIP not ready
-- `1dd1879` trace: written, not yet compiled.
+(none; all code compiled in Windows run 4. In-game behaviour untested.)
+
+## Owner test plan (RX 6600, Ocarina of Time)
+1. Unzip the artifact into a new folder (keep user data; shader cache is not touched).
+2. Normal run: play through the Mido sequence. Look in the log for
+   `Deferred compute shader <hash> built in N s`, `Driver rejected compute shader`, and
+   `Native compute shader rejected: Compute shader ... is still being built`.
+3. Trace run: set `EDEN_NX2_PIPE_TRACE=1` (e.g. `set EDEN_NX2_PIPE_TRACE=1` then start
+   `lichii.exe` from the same cmd). After a freeze or crash, the last `PIPE ... begin` line
+   without its matching `done`/`end`/`fail` names the pipeline (key + stage hashes).
+4. A/B: `EDEN_NX2_DEFER_MATRIX_PIPELINES=0` restores the build 3 behaviour for HMMA shaders.
 
 ## Next action
-Wait for both CI runs; fix any compile error; then PR to `audit/windows-pgo-validated` (no merge).
+PR to `audit/windows-pgo-validated` (no merge). Then wait for owner logs from the RX 6600.
