@@ -23,8 +23,8 @@ bundle/patch backup of `01dbfc5` was handed over as session files meanwhile. Pus
 | 1 | Verify PR #149 fence fix (ceed7ca) already in build 3 | done (present) |
 | 2 | Port 2f067c1 (deferred AMD software HMMA compute pipelines) | done, local `aedb97f`, not compiled yet |
 | 3 | Port pipeline trace 2e46a01 + 31390c3 (`EDEN_NX2_PIPE_TRACE=1`) | done, local `1dd1879` (WIP until compiled) |
-| 4 | Workflow: run on work branch, artifact `amd-hmma-trace-build-4` | todo |
-| 5 | Linux compile check + Windows CI run | todo |
+| 4 | Workflow: run on work branch, artifact `amd-hmma-trace-build-4` | done `656d449` |
+| 5 | Linux compile check + Windows CI run | running (see Tests) |
 | 6 | PR to base (no merge) | todo |
 
 ## Not to integrate (per owner)
@@ -67,8 +67,23 @@ prebuild), `rt` (GPU-thread translation), `emit` (worker SPIR-V emission), `drv`
 vkCreate*Pipelines; compute line also says `deferred=`). Logged at Error level: file backend
 flushes on Error, so lines survive a crash. Unset: no new lines, no behaviour change.
 
+### Phase 4: workflow (`.github/workflows/release-binaries.yml`)
+- Push trigger adds `test/amd-hmma-pipeline-trace` (keeps `audit/windows-pgo-validated`).
+- `LICHII_BUILD_ID: amd-hmma-trace-build-4` -> `-DLICHII_BUILD_TAG` and artifact name
+  `amd-hmma-trace-build-4-windows-x86_64-pgo-<sha>`. Version string in the emulator stays
+  `<commit>-<branch>` (GenerateSCMRev only uses tags matching `build-N`).
+- Artifact = the packaged `build/release/bin` folder; GitHub serves it as one ZIP on download
+  (uploading a .zip would give a zip inside a zip, see comment in the workflow).
+- Unchanged: MSYS2 clang + PGO profile, FFmpeg from MSYS2 (`-DYUZU_USE_BUNDLED_FFMPEG=OFF`),
+  DLL dependency copy, `av1_decode_smoke` run against the packaged DLLs, update checker OFF, no release job.
+
 ## Tests
-(none yet)
+- Local Linux compile: NOT possible in the cloud session. CPM downloads of github.com
+  release tarballs are refused by the session's network policy (HTTP 403); git fetch works.
+- CI compile checks instead:
+  - Windows PGO run 4 on `656d449`: https://github.com/Kerberone/Lichii/actions/runs/42215516056 (result: pending)
+  - `build-check.yml` (Linux GCC 13, -Werror, unit tests) dispatched on the branch (result: pending)
+- Patch backup restore (`git am` and bundle) verified identical to `01dbfc5`.
 
 ## Hypotheses
 - Unproven: 0 FPS stalls come from AMD driver compiling large software-HMMA compute shaders on the GPU thread.
@@ -78,5 +93,4 @@ flushes on Error, so lines survive a crash. Unset: no new lines, no behaviour ch
 - `1dd1879` trace: written, not yet compiled.
 
 ## Next action
-Local clang compile of the touched video_core files (configure in /tmp/claude-0/lbuild), then
-phase 4 (workflow). Push as soon as GitHub write access works.
+Wait for both CI runs; fix any compile error; then PR to `audit/windows-pgo-validated` (no merge).
