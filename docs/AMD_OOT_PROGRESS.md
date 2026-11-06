@@ -24,7 +24,7 @@ bundle/patch backup of `01dbfc5` was handed over as session files meanwhile. Pus
 | 2 | Port 2f067c1 (deferred AMD software HMMA compute pipelines) | done, local `aedb97f`, not compiled yet |
 | 3 | Port pipeline trace 2e46a01 + 31390c3 (`EDEN_NX2_PIPE_TRACE=1`) | done, local `1dd1879` (WIP until compiled) |
 | 4 | Workflow: run on work branch, artifact `amd-hmma-trace-build-4` | done `656d449` |
-| 5 | Linux compile check + Windows CI run | running (see Tests) |
+| 5 | Windows CI run (Windows only, per owner) | running (see Tests) |
 | 6 | PR to base (no merge) | todo |
 
 ## Not to integrate (per owner)
@@ -82,7 +82,8 @@ flushes on Error, so lines survive a crash. Unset: no new lines, no behaviour ch
   release tarballs are refused by the session's network policy (HTTP 403); git fetch works.
 - CI compile checks instead:
   - Windows PGO run 4 on `656d449`: https://github.com/Kerberone/Lichii/actions/runs/42215516056 (result: pending)
-  - `build-check.yml` (Linux GCC 13, -Werror, unit tests) dispatched on the branch (result: pending)
+  - `build-check.yml` (Linux) was dispatched once and cancelled at the owner's request:
+    build 4 is Windows only. Do not run other OS builds.
 - Patch backup restore (`git am` and bundle) verified identical to `01dbfc5`.
 
 ## Hypotheses
