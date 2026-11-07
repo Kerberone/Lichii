@@ -41,7 +41,12 @@ It does not install or activate a paid OpenAI/Anthropic API integration.
   do not consume Claude usage. Each job checks out the explicitly identified
   PR commit; the automatic job is read-only.
 - Its token has *read-only source* permissions, and its Claude tool list is
-  restricted to reading/grepping. It is **not** an automated code-fixer.
+  restricted to reading/grepping. The workflow fetches the exact Codex inline
+  review findings into an untracked JSON file in the workspace; Claude reads
+  that file as untrusted data. If Claude succeeds, a separate trusted step
+  posts its structured diagnosis once, deduplicated by review ID. Claude
+  itself cannot post with the restricted tools. This is **not** an automated
+  code-fixer.
   To request a correction, the owner can comment `@claude Fix the confirmed
   findings on this PR branch and explain what you tested`.
 - Neither job invokes the other bot. Each invocation has a time/turn limit.
