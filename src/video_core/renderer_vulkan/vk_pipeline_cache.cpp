@@ -41,6 +41,7 @@
 #include "video_core/renderer_vulkan/pipeline_helper.h"
 #include "video_core/renderer_vulkan/pipeline_shader_emission.h"
 #include "video_core/renderer_vulkan/pipeline_statistics.h"
+#include "video_core/renderer_vulkan/pipeline_trace.h"
 #include "video_core/renderer_vulkan/vertex_repack.h"
 #include "video_core/renderer_vulkan/vk_compute_pipeline.h"
 #include "video_core/renderer_vulkan/vk_descriptor_pool.h"
@@ -457,6 +458,7 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
                                                                      : GetTotalPipelineWorkers()},
       emission_budget{num_pipeline_workers},
       workers(num_pipeline_workers, "VkPipelineBuilder", {}, Common::ThreadPlacement::Background),
+      deferred_workers(1, "VkDeferredPipelines", {}, Common::ThreadPlacement::Background),
       serialization_thread(1, "VkPipelineSerialization", {}, Common::ThreadPlacement::Background),
       background_pipelines{64, 16 * 1024 * 1024, device.HasBrokenParallelShaderCompiling()} {
     const auto& float_control{device.FloatControlProperties()};
@@ -831,6 +833,8 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     if (!pipeline_cache_filename.empty()) {
         background_pipelines.Stop();
         workers.WaitForRequests();
+        // Deferred builds use vulkan_pipeline_cache, which the reload below replaces.
+        deferred_workers.WaitForRequests();
         serialization_thread.WaitForRequests();
         if (use_vulkan_pipeline_cache && !vulkan_pipeline_cache_filename.empty()) {
             SerializeVulkanPipelineCache(vulkan_pipeline_cache_filename, vulkan_pipeline_cache,
@@ -888,10 +892,33 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         file.read(reinterpret_cast<char*>(&key), sizeof(key));
 
         workers.QueueWork([this, key, env_ = std::move(env), &state, &callback]() mutable {
+            {
+                // A reload finds the pipelines of the previous load already in the cache.
+                std::scoped_lock lock{state.mutex};
+                if (compute_cache.contains(key)) {
+                    ++state.built;
+                    if (state.has_loaded) {
+                        callback(VideoCore::LoadCallbackStage::Build, state.built, state.total);
+                    }
+                    return;
+                }
+            }
             ShaderPools pools;
+            const auto trace_begin = std::chrono::steady_clock::now();
+            if (PipeTrace::Enabled()) {
+                LOG_ERROR(Render_Vulkan, "PIPE cache compute begin cs={:016x}", key.unique_hash);
+            }
             auto entry{CreateComputePipeline(pools, key, env_, state.statistics.get(), false)};
+            if (PipeTrace::Enabled()) {
+                LOG_ERROR(Render_Vulkan, "PIPE cache compute {} cs={:016x} ms={:.1f}",
+                          entry.pipeline ? "done" : "fail", key.unique_hash,
+                          PipeTrace::Ms(trace_begin));
+            }
             std::scoped_lock lock{state.mutex};
-            if (entry.pipeline) {
+            if (entry.pipeline && compute_cache.contains(key)) {
+                // A duplicate key in the file: a deferred build may still use this pipeline.
+                retired_compute_pipelines.push_back(std::move(entry.pipeline));
+            } else if (entry.pipeline) {
                 compute_cache.emplace(key, std::move(entry));
             }
             ++state.built;
@@ -962,8 +989,18 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
                         for (auto& env : envs) {
                             env_ptrs.push_back(&env);
                         }
+                        const auto trace_begin = std::chrono::steady_clock::now();
+                        if (PipeTrace::Enabled()) {
+                            LOG_ERROR(Render_Vulkan, "PIPE prebuild graphics begin key={:016x}{}",
+                                      key.Hash(), PipeTrace::Stages(key.unique_hashes));
+                        }
                         auto pipeline =
                             CreateGraphicsPipeline(pools, key, MakeSpan(env_ptrs), nullptr, false);
+                        if (PipeTrace::Enabled()) {
+                            LOG_ERROR(Render_Vulkan, "PIPE prebuild graphics {} key={:016x} ms={:.1f}",
+                                      pipeline && !pipeline->Failed() ? "done" : "fail",
+                                      key.Hash(), PipeTrace::Ms(trace_begin));
+                        }
                         if (pipeline && pipeline->Failed()) {
                             return std::unique_ptr<GraphicsPipeline>{};
                         }
@@ -981,8 +1018,18 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
             for (auto& env : envs_) {
                 env_ptrs.push_back(&env);
             }
+            const auto trace_begin = std::chrono::steady_clock::now();
+            if (PipeTrace::Enabled()) {
+                LOG_ERROR(Render_Vulkan, "PIPE cache graphics begin key={:016x}{}", key.Hash(),
+                          PipeTrace::Stages(key.unique_hashes));
+            }
             auto pipeline{CreateGraphicsPipeline(pools, key, MakeSpan(env_ptrs),
                                                  state.statistics.get(), false)};
+            if (PipeTrace::Enabled()) {
+                LOG_ERROR(Render_Vulkan, "PIPE cache graphics {} key={:016x} ms={:.1f}",
+                          pipeline && !pipeline->Failed() ? "done" : "fail", key.Hash(),
+                          PipeTrace::Ms(trace_begin));
+            }
 
             std::scoped_lock lock{state.mutex};
             if (pipeline) {
@@ -1464,7 +1511,17 @@ void ReportRuntimePipeline(const char* kind, std::chrono::steady_clock::time_poi
 
 std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
     const auto begin = std::chrono::steady_clock::now();
+    // Translation on the GPU thread; the emission and driver compile may follow on a worker.
+    const bool pipe_trace = PipeTrace::Enabled();
+    if (pipe_trace) {
+        LOG_ERROR(Render_Vulkan, "PIPE rt graphics begin key={:016x}{}", graphics_key.Hash(),
+                  PipeTrace::Stages(graphics_key.unique_hashes));
+    }
     SCOPE_EXIT {
+        if (pipe_trace) {
+            LOG_ERROR(Render_Vulkan, "PIPE rt graphics end key={:016x} ms={:.1f}",
+                      graphics_key.Hash(), PipeTrace::Ms(begin));
+        }
         std::string shaders = fmt::format("pipeline={:016x}", graphics_key.Hash());
         for (size_t stage = 0; stage < graphics_key.unique_hashes.size(); ++stage) {
             if (graphics_key.unique_hashes[stage] != 0) {
@@ -1521,7 +1578,15 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline() {
 ComputePipelineCacheEntry PipelineCache::CreateComputePipeline(
     const ComputePipelineCacheKey& key, const ShaderInfo* shader) {
     const auto begin = std::chrono::steady_clock::now();
+    const bool pipe_trace = PipeTrace::Enabled();
+    if (pipe_trace) {
+        LOG_ERROR(Render_Vulkan, "PIPE rt compute begin cs={:016x}", key.unique_hash);
+    }
     SCOPE_EXIT {
+        if (pipe_trace) {
+            LOG_ERROR(Render_Vulkan, "PIPE rt compute end cs={:016x} ms={:.1f}", key.unique_hash,
+                      PipeTrace::Ms(begin));
+        }
         ReportRuntimePipeline("Compute", begin,
                               fmt::format("pipeline={:016x} s6:{:016x} address={:#x}", key.Hash(),
                                           key.unique_hash,
@@ -1614,11 +1679,15 @@ ComputePipelineCacheEntry PipelineCache::CreateComputePipeline(
         const auto name{fmt::format("Shader {:016x}", key.unique_hash)};
         spv_module.SetObjectNameEXT(name.c_str());
     }
-    Common::ThreadWorker* const thread_worker{build_in_parallel ? &workers : nullptr};
+    const bool deferred = program.info.uses_software_matrix &&
+                          device.DefersSoftwareMatrixPipelines();
+    Common::ThreadWorker* const thread_worker{deferred            ? &deferred_workers
+                                              : build_in_parallel ? &workers
+                                                                  : nullptr};
     return {.pipeline = std::make_unique<ComputePipeline>(
                 device, scheduler, vulkan_pipeline_cache, descriptor_pool, guest_descriptor_queue,
-                descriptor_buffer_ring, thread_worker, statistics, &shader_notify, program.info,
-                std::move(spv_module), key.unique_hash)};
+                descriptor_buffer_ring, thread_worker, deferred ? nullptr : statistics,
+                &shader_notify, program.info, std::move(spv_module), key.unique_hash, deferred)};
 
 } catch (const Shader::Exception& exception) {
     LOG_ERROR(Render_Vulkan, "Compute pipeline compilation failed shader={:#016x} pipeline={:#016x}: {}",

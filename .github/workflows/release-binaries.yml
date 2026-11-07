@@ -1,10 +1,11 @@
-name: Lichii Windows PGO (AV1 verified + AMD fixes)
+name: Lichii Windows PGO build 4 (AV1 + AMD HMMA deferral + pipeline trace)
 
 on:
   workflow_dispatch:
   push:
     branches:
       - audit/windows-pgo-validated
+      - test/amd-hmma-pipeline-trace
     # A binary only changes when build inputs change; docs-only pushes skip the build.
     paths:
       - "src/**"
@@ -28,6 +29,8 @@ permissions:
 # eglantine.profdata; bump it when a refreshed profile needs a newer LLVM.
 env:
   PGO_LLVM_VERSION: "23"
+  # Experimental build identifier: artifact name and the build's release tag string.
+  LICHII_BUILD_ID: amd-hmma-trace-build-4
 
 # Windows-only experimental build. Artifacts are saved to the workflow run; no release is published.
 concurrency:
@@ -287,7 +290,7 @@ jobs:
             -DVulkanHeaders_FORCE_BUNDLED=ON \
             -DVulkanUtilityLibraries_FORCE_BUNDLED=ON \
             -DENABLE_UPDATE_CHECKER=ON \
-            -DLICHII_BUILD_TAG=build-${{ github.run_number }} \
+            -DLICHII_BUILD_TAG=${{ env.LICHII_BUILD_ID }} \
             -DLICHII_BUILD_PLATFORM=${{ matrix.platform }} \
             -DUSE_DISCORD_PRESENCE=OFF \
             -DUSE_CCACHE=ON
@@ -315,7 +318,7 @@ jobs:
             -DVulkanHeaders_FORCE_BUNDLED=ON \
             -DVulkanUtilityLibraries_FORCE_BUNDLED=ON \
             -DENABLE_UPDATE_CHECKER=OFF \
-            -DLICHII_BUILD_TAG=build-${{ github.run_number }} \
+            -DLICHII_BUILD_TAG=${{ env.LICHII_BUILD_ID }} \
             -DLICHII_BUILD_PLATFORM=${{ matrix.platform }} \
             -DUSE_DISCORD_PRESENCE=OFF \
             -DUSE_CCACHE=ON \
@@ -563,7 +566,7 @@ jobs:
         if: matrix.mingw
         uses: actions/upload-artifact@v7
         with:
-          name: lichii-${{ matrix.platform }}-${{ github.sha }}
+          name: ${{ env.LICHII_BUILD_ID }}-${{ matrix.platform }}-${{ github.sha }}
           path: build/release/bin/
           if-no-files-found: error
           retention-days: 7

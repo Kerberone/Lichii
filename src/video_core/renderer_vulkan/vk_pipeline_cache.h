@@ -189,6 +189,9 @@ private:
     std::unordered_set<u64> used_and_evicted; ///< Key hashes of pipelines used this session, evicted since
 
     ::Common::unordered_map<ComputePipelineCacheKey, ComputePipelineCacheEntry> compute_cache;
+    /// Disk cache duplicates of cached compute pipelines. Kept until deferred_workers is joined,
+    /// which may still be building them.
+    std::vector<std::unique_ptr<ComputePipeline>> retired_compute_pipelines;
     ::Common::unordered_map<GraphicsPipelineCacheKey, std::unique_ptr<GraphicsPipeline>> graphics_cache;
 
     ShaderPools main_pools;
@@ -218,6 +221,9 @@ private:
     std::atomic_bool flush_in_flight{};
 
     Common::ThreadWorker workers;
+    /// Software HMMA compute pipelines on drivers that take minutes on them
+    /// (Device::DefersSoftwareMatrixPipelines); nothing waits for this worker.
+    Common::ThreadWorker deferred_workers;
     Common::ThreadWorker serialization_thread;
     DynamicFeatures dynamic_features;
     PipelinePrebuild<GraphicsPipelineCacheKey, GraphicsPipeline> background_pipelines;
