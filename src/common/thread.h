@@ -114,6 +114,9 @@ void SetCurrentThreadToPerformanceCores();
 /// physical core each and the guest cores are kept off both, so no SMT sibling shares them.
 enum class PinnedRole : u32 { GpuFront, GpuBack, GuestCore };
 void PinCurrentThread(PinnedRole role);
+/// Undoes PinCurrentThread from the same thread on exit: GpuBack returns its core to the guest
+/// threads, GuestCore forgets the thread.
+void UnpinCurrentThread(PinnedRole role);
 
 struct PinMasks {
     u64 front{};
@@ -125,6 +128,9 @@ struct PinMasks {
 /// affinity. Cores not entirely inside `allowed` are ignored. Returns all zero when fewer than 4
 /// usable physical cores remain. Core 0 is left to interrupts.
 PinMasks ComputePinMasks(const std::vector<u64>& cores, u64 allowed);
+
+/// Guest mask depending on whether the GPU back thread runs; without it its core is shared again.
+u64 GuestPinMask(const PinMasks& masks, bool gpu_back_active);
 void SetCurrentThreadToEfficiencyCores();
 void SetCurrentThreadToBackgroundWork();
 void SetCurrentThreadToAllCores();

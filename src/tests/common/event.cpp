@@ -192,3 +192,12 @@ TEST_CASE("Thread pinning masks fall back on small or restricted topologies", "[
     CHECK(none(Common::ComputePinMasks({0x3, 0xc, 0x30, 0xc0}, 0x7f)));
     CHECK_FALSE(none(Common::ComputePinMasks({0x1, 0x2, 0x4, 0x8}, 0xf)));
 }
+
+TEST_CASE("Thread pinning returns the GPU back core to guests while split is inactive",
+          "[common][thread]") {
+    const auto masks = Common::ComputePinMasks({0x3, 0xc, 0x30, 0xc0, 0x300, 0xc00}, 0xfff);
+    CHECK(Common::GuestPinMask(masks, true) == (0xfff & ~u64{0x3c}));
+    CHECK(Common::GuestPinMask(masks, false) == (0xfff & ~u64{0xc}));
+    // Unsupported topology never yields a guest mask.
+    CHECK(Common::GuestPinMask(Common::PinMasks{}, false) == 0);
+}
