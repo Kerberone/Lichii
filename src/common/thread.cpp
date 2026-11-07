@@ -549,6 +549,169 @@ void SetCurrentThreadToPerformanceCores() {
 #endif
 }
 
+PinMasks ComputePinMasks(const std::vector<u64>& cores, u64 allowed) {
+    std::vector<u64> usable;
+    for (const u64 core : cores) {
+        if (core != 0 && (core & ~allowed) == 0) {
+            usable.push_back(core);
+        }
+    }
+    if (usable.size() < 4) {
+        return {};
+    }
+    PinMasks masks{.front = usable[1], .back = usable[2]};
+    for (const u64 core : usable) {
+        masks.guest |= core;
+    }
+    masks.guest &= ~(masks.front | masks.back);
+    return masks;
+}
+
+u64 GuestPinMask(const PinMasks& masks, bool gpu_back_active) {
+    if (masks.guest == 0) {
+        return 0;
+    }
+    return gpu_back_active ? masks.guest : (masks.guest | masks.back);
+}
+
+#ifdef _WIN32
+namespace {
+
+const PinMasks& GetPinMasks() {
+    static const PinMasks masks = [] {
+        PinMasks result;
+        const char* const setting = std::getenv("EDEN_NX2_PIN_THREADS");
+        if (setting == nullptr || setting[0] != '1') {
+            return result;
+        }
+        DWORD_PTR process_mask = 0;
+        DWORD_PTR system_mask = 0;
+        if (!GetProcessAffinityMask(GetCurrentProcess(), &process_mask, &system_mask)) {
+            return result;
+        }
+        // Group 0 only: a process spanning several groups keeps default placement.
+        USHORT group_count = 2;
+        USHORT groups[2]{};
+        if (!GetProcessGroupAffinity(GetCurrentProcess(), &group_count, groups) ||
+            group_count != 1 || groups[0] != 0) {
+            return result;
+        }
+        std::vector<u64> cores;
+        DWORD length = 0;
+        GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &length);
+        if (length == 0) {
+            return result;
+        }
+        std::vector<u8> buffer(length);
+        if (!GetLogicalProcessorInformationEx(
+                RelationProcessorCore,
+                reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data()),
+                &length)) {
+            return result;
+        }
+        for (DWORD offset = 0; offset < length;) {
+            const auto* entry =
+                reinterpret_cast<const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data() +
+                                                                                offset);
+            if (entry->Size == 0) {
+                break;
+            }
+            if (entry->Relationship == RelationProcessorCore && entry->Processor.GroupCount == 1 &&
+                entry->Processor.GroupMask[0].Group == 0) {
+                cores.push_back(static_cast<u64>(entry->Processor.GroupMask[0].Mask));
+            }
+            offset += entry->Size;
+        }
+        result = ComputePinMasks(cores, static_cast<u64>(process_mask));
+        if (result.front != 0) {
+            LOG_INFO(Common, "EDEN_NX2_PIN_THREADS: gpu front {:#x}, gpu back {:#x}, guest {:#x}",
+                     result.front, result.back, result.guest);
+        } else {
+            LOG_INFO(Common, "EDEN_NX2_PIN_THREADS: unsupported topology, default affinity");
+        }
+        return result;
+    }();
+    return masks;
+}
+
+// Guest threads are re-pinned from whichever thread starts or stops the GPU back thread, so
+// their handles are kept (under the mutex) while they run.
+struct PinState {
+    std::mutex mutex;
+    bool gpu_back_active{};
+    std::vector<std::pair<DWORD, HANDLE>> guests;
+};
+
+PinState& GetPinState() {
+    static PinState state;
+    return state;
+}
+
+void ApplyGuestMask(const PinState& state, const PinMasks& masks) {
+    const u64 guest = GuestPinMask(masks, state.gpu_back_active);
+    for (const auto& entry : state.guests) {
+        SetThreadAffinityMask(entry.second, static_cast<DWORD_PTR>(guest));
+    }
+}
+
+} // namespace
+#endif
+
+void PinCurrentThread([[maybe_unused]] PinnedRole role) {
+#ifdef _WIN32
+    const PinMasks& masks = GetPinMasks();
+    if (masks.front == 0) {
+        return;
+    }
+    PinState& state = GetPinState();
+    std::scoped_lock lock{state.mutex};
+    switch (role) {
+    case PinnedRole::GpuFront:
+        SetThreadAffinityMask(GetCurrentThread(), static_cast<DWORD_PTR>(masks.front));
+        break;
+    case PinnedRole::GpuBack:
+        SetThreadAffinityMask(GetCurrentThread(), static_cast<DWORD_PTR>(masks.back));
+        state.gpu_back_active = true;
+        ApplyGuestMask(state, masks);
+        break;
+    case PinnedRole::GuestCore: {
+        HANDLE handle = nullptr;
+        if (DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &handle,
+                            THREAD_SET_INFORMATION | THREAD_QUERY_INFORMATION, FALSE, 0)) {
+            state.guests.emplace_back(GetCurrentThreadId(), handle);
+        }
+        SetThreadAffinityMask(GetCurrentThread(),
+                              static_cast<DWORD_PTR>(GuestPinMask(masks, state.gpu_back_active)));
+        break;
+    }
+    }
+#endif
+}
+
+void UnpinCurrentThread([[maybe_unused]] PinnedRole role) {
+#ifdef _WIN32
+    const PinMasks& masks = GetPinMasks();
+    if (masks.front == 0 || role == PinnedRole::GpuFront) {
+        return;
+    }
+    PinState& state = GetPinState();
+    std::scoped_lock lock{state.mutex};
+    if (role == PinnedRole::GpuBack) {
+        state.gpu_back_active = false;
+        ApplyGuestMask(state, masks);
+        return;
+    }
+    const DWORD self = GetCurrentThreadId();
+    std::erase_if(state.guests, [self](const auto& entry) {
+        if (entry.first != self) {
+            return false;
+        }
+        CloseHandle(entry.second);
+        return true;
+    });
+#endif
+}
+
 void SetCurrentThreadToEfficiencyCores() {
 #if defined(__ANDROID__)
     if (ADPF::AddCurrentThread(ADPF::Session::Background)) {

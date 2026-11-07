@@ -171,3 +171,33 @@ TEST_CASE("Event signalling across timed and untimed waits remains consumable", 
     CHECK(completed.load());
     CHECK_FALSE(event.WaitFor(0ns));
 }
+
+TEST_CASE("Thread pinning masks keep guests off the GPU cores and their SMT siblings",
+          "[common][thread]") {
+    const std::vector<u64> cores{0x3, 0xc, 0x30, 0xc0, 0x300, 0xc00};
+    const auto masks = Common::ComputePinMasks(cores, 0xfff);
+    CHECK(masks.front == 0xc);
+    CHECK(masks.back == 0x30);
+    CHECK(masks.guest == (0xfff & ~u64{0x3c}));
+    CHECK((masks.guest & (masks.front | masks.back)) == 0);
+}
+
+TEST_CASE("Thread pinning masks fall back on small or restricted topologies", "[common][thread]") {
+    const auto none = [](const Common::PinMasks& m) {
+        return m.front == 0 && m.back == 0 && m.guest == 0;
+    };
+    CHECK(none(Common::ComputePinMasks({0x3, 0xc, 0x30}, 0x3f)));
+    CHECK(none(Common::ComputePinMasks({}, 0xff)));
+    // Cores partly outside the process affinity are ignored, leaving only three.
+    CHECK(none(Common::ComputePinMasks({0x3, 0xc, 0x30, 0xc0}, 0x7f)));
+    CHECK_FALSE(none(Common::ComputePinMasks({0x1, 0x2, 0x4, 0x8}, 0xf)));
+}
+
+TEST_CASE("Thread pinning returns the GPU back core to guests while split is inactive",
+          "[common][thread]") {
+    const auto masks = Common::ComputePinMasks({0x3, 0xc, 0x30, 0xc0, 0x300, 0xc00}, 0xfff);
+    CHECK(Common::GuestPinMask(masks, true) == (0xfff & ~u64{0x3c}));
+    CHECK(Common::GuestPinMask(masks, false) == (0xfff & ~u64{0xc}));
+    // Unsupported topology never yields a guest mask.
+    CHECK(Common::GuestPinMask(Common::PinMasks{}, false) == 0);
+}
