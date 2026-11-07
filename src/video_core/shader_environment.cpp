@@ -390,8 +390,23 @@ Tegra::Texture::TICEntry GenericEnvironment::ReadTextureInfo(GPUVAddr tic_addr, 
     const auto handle{Tegra::Texture::TexturePair(raw, via_header_index)};
     const u32 index{Tegra::Texture::TextureHeaderIndex(handle.first, tic_limit,
                                                        gpu_memory->UsesNativeTiling())};
-    ASSERT(index <= tic_limit);
-    const GPUVAddr descriptor_addr{tic_addr + index * sizeof(Tegra::Texture::TICEntry)};
+    const bool in_bounds{Tegra::Texture::TextureHeaderIndexInBounds(index, tic_limit)};
+    ASSERT(in_bounds);
+    const GPUVAddr descriptor_addr{
+        tic_addr + Tegra::Texture::TextureHeaderByteOffset(index, sizeof(Tegra::Texture::TICEntry))};
+    if (!in_bounds && std::getenv("EDEN_NX2_TIC_TRACE")) {
+        // Bounded, and free of descriptor contents: only indices, addresses and program identity.
+        static std::atomic<u32> bounds_traces{};
+        if (bounds_traces.fetch_add(1, std::memory_order_relaxed) < 32) {
+            LOG_WARNING(HW_GPU,
+                        "Out-of-range shader TIC: program={:#x} stage={} raw={:#x} index={} "
+                        "limit={} via_header_index={} native={} descriptor={:#x} mapped={}",
+                        program_base, static_cast<u32>(stage), raw, index, tic_limit,
+                        via_header_index, gpu_memory->UsesNativeTiling(), descriptor_addr,
+                        gpu_memory->IsFullyMappedRange(descriptor_addr,
+                                                       sizeof(Tegra::Texture::TICEntry)));
+        }
+    }
     Tegra::Texture::TICEntry entry;
     gpu_memory->ReadBlock(descriptor_addr, &entry, sizeof(entry));
     if (entry.format.Value() == Tegra::Texture::TextureFormat{} &&
