@@ -53,5 +53,5 @@ Status: **UNPROVEN ROOT CAUSE / NO GAMEPLAY PASS**. Experimental Windows branch,
 
 ## Controlled first A/B for owner when an artifact exists
 1. With the **same** build and game data and no trace, default/fidelity mode with HMMA not skipped; observe whether it boots, and note wait time.
-2. With `EDEN_NX2_PIPE_TRACE=1` and `EDEN_NX2_RENDER_TRACE=1` when crash persists, capture fresh `eden_log.txt.old` including last `PIPE ... begin` without matching `end`.
+2. If the crash persists, launch the **same** binary with `EDEN_NX2_PIPE_TRACE=1`, `EDEN_NX2_RENDER_TRACE=1`, and **`EDEN_NX2_TIC_TRACE=1`** (required to capture out-of-range TIC index/raw handle/limit/mapping; `RENDER_TRACE` alone only reports zero-format descriptors). Capture fresh `eden_log.txt.old`, especially the first `Out-of-range shader TIC` and the last unmatched `PIPE ... begin` line. These diagnostic flags are for reproduction only, not performance benchmarking.
 3. Report actual AMD driver, shader/pipeline hashes, hardware outcome and any visual differences. Keep the screenshots private unless explicitly shared.
