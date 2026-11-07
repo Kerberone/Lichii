@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <mutex>
 #include <thread>
+#include <vector>
 #include "common/common_types.h"
 #include "common/polyfill_thread.h"
 
@@ -108,6 +109,22 @@ enum class ThreadPlacement : u32 {
 void SetCurrentThreadPriority(ThreadPriority new_priority);
 void SetCurrentThreadName(const char* name);
 void SetCurrentThreadToPerformanceCores();
+
+/// EDEN_NX2_PIN_THREADS=1 (Windows only, off by default): the split GPU thread's halves get one
+/// physical core each and the guest cores are kept off both, so no SMT sibling shares them.
+enum class PinnedRole : u32 { GpuFront, GpuBack, GuestCore };
+void PinCurrentThread(PinnedRole role);
+
+struct PinMasks {
+    u64 front{};
+    u64 back{};
+    u64 guest{};
+};
+
+/// Picks the masks from physical-core masks (one per core, SMT siblings together) and the process
+/// affinity. Cores not entirely inside `allowed` are ignored. Returns all zero when fewer than 4
+/// usable physical cores remain. Core 0 is left to interrupts.
+PinMasks ComputePinMasks(const std::vector<u64>& cores, u64 allowed);
 void SetCurrentThreadToEfficiencyCores();
 void SetCurrentThreadToBackgroundWork();
 void SetCurrentThreadToAllCores();

@@ -549,6 +549,97 @@ void SetCurrentThreadToPerformanceCores() {
 #endif
 }
 
+PinMasks ComputePinMasks(const std::vector<u64>& cores, u64 allowed) {
+    std::vector<u64> usable;
+    for (const u64 core : cores) {
+        if (core != 0 && (core & ~allowed) == 0) {
+            usable.push_back(core);
+        }
+    }
+    if (usable.size() < 4) {
+        return {};
+    }
+    PinMasks masks{.front = usable[1], .back = usable[2]};
+    for (const u64 core : usable) {
+        masks.guest |= core;
+    }
+    masks.guest &= ~(masks.front | masks.back);
+    return masks;
+}
+
+void PinCurrentThread([[maybe_unused]] PinnedRole role) {
+#ifdef _WIN32
+    static const char* const setting = std::getenv("EDEN_NX2_PIN_THREADS");
+    if (setting == nullptr || setting[0] != '1') {
+        return;
+    }
+    static const PinMasks masks = [] {
+        PinMasks result;
+        DWORD_PTR process_mask = 0;
+        DWORD_PTR system_mask = 0;
+        if (!GetProcessAffinityMask(GetCurrentProcess(), &process_mask, &system_mask)) {
+            return result;
+        }
+        // Group 0 only: a process spanning several groups keeps default placement.
+        USHORT group_count = 2;
+        USHORT groups[2]{};
+        if (!GetProcessGroupAffinity(GetCurrentProcess(), &group_count, groups) ||
+            group_count != 1 || groups[0] != 0) {
+            return result;
+        }
+        std::vector<u64> cores;
+        DWORD length = 0;
+        GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &length);
+        if (length == 0) {
+            return result;
+        }
+        std::vector<u8> buffer(length);
+        if (!GetLogicalProcessorInformationEx(
+                RelationProcessorCore,
+                reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data()),
+                &length)) {
+            return result;
+        }
+        for (DWORD offset = 0; offset < length;) {
+            const auto* entry =
+                reinterpret_cast<const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data() +
+                                                                                offset);
+            if (entry->Size == 0) {
+                break;
+            }
+            if (entry->Relationship == RelationProcessorCore && entry->Processor.GroupCount == 1 &&
+                entry->Processor.GroupMask[0].Group == 0) {
+                cores.push_back(static_cast<u64>(entry->Processor.GroupMask[0].Mask));
+            }
+            offset += entry->Size;
+        }
+        result = ComputePinMasks(cores, static_cast<u64>(process_mask));
+        if (result.front != 0) {
+            LOG_INFO(Common, "EDEN_NX2_PIN_THREADS: gpu front {:#x}, gpu back {:#x}, guest {:#x}",
+                     result.front, result.back, result.guest);
+        } else {
+            LOG_INFO(Common, "EDEN_NX2_PIN_THREADS: unsupported topology, default affinity");
+        }
+        return result;
+    }();
+    u64 mask = 0;
+    switch (role) {
+    case PinnedRole::GpuFront:
+        mask = masks.front;
+        break;
+    case PinnedRole::GpuBack:
+        mask = masks.back;
+        break;
+    case PinnedRole::GuestCore:
+        mask = masks.guest;
+        break;
+    }
+    if (mask != 0) {
+        SetThreadAffinityMask(GetCurrentThread(), static_cast<DWORD_PTR>(mask));
+    }
+#endif
+}
+
 void SetCurrentThreadToEfficiencyCores() {
 #if defined(__ANDROID__)
     if (ADPF::AddCurrentThread(ADPF::Session::Background)) {
