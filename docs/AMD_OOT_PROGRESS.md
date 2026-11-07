@@ -26,6 +26,7 @@ bundle/patch backup of `01dbfc5` was handed over as session files meanwhile. Pus
 | 4 | Workflow: run on work branch, artifact `amd-hmma-trace-build-4` | done `656d449` |
 | 5 | Windows CI run (Windows only, per owner) | success, run 4 |
 | 6 | PR to base (no merge) | open: https://github.com/Kerberone/Lichii/pull/1 |
+| 7 | Codex review fixes | `37c813a` pushed, NOT compiled (Actions disabled) |
 
 ## Not to integrate (per owner)
 Whole PR #223, PR #216, resolution experiments, global GPU-only memory changes, global shader
@@ -104,6 +105,18 @@ flushes on Error, so lines survive a crash. Unset: no new lines, no behaviour ch
 ## WIP not ready
 (none; all code compiled in Windows run 4. In-game behaviour untested.)
 
+### Phase 7: Codex review fixes (`37c813a`)
+Codex (PR #1) found two real P1 issues in the HMMA port, both on the disk cache reload path
+(`EmuThread::ReloadDiskShaderCache` -> `LoadDiskResources`) and on duplicate keys:
+- Reload barrier did not wait for `deferred_workers` before replacing `vulkan_pipeline_cache`
+  -> now `deferred_workers.WaitForRequests()` (a reload may wait for a running AMD compile).
+- A compute key already in `compute_cache` (reload, or a duplicate entry in the cache file)
+  destroyed the new pipeline while its deferred build could still run -> keys already cached are
+  skipped; a duplicate built anyway goes to `retired_compute_pipelines` (kept until the worker join).
+NOT COMPILED: GitHub Actions is disabled on Kerberone/Lichii since run 4 (push of `37c813a` started
+nothing; `workflow_dispatch` answers "Actions has been disabled for this repository"). The
+artifact of run 4 (`656d449`) does NOT contain this fix.
+
 ## Owner test plan (RX 6600, Ocarina of Time)
 1. Unzip the artifact into a new folder (keep user data; shader cache is not touched).
 2. Normal run: play through the Mido sequence. Look in the log for
@@ -115,4 +128,6 @@ flushes on Error, so lines survive a crash. Unset: no new lines, no behaviour ch
 4. A/B: `EDEN_NX2_DEFER_MATRIX_PIPELINES=0` restores the build 3 behaviour for HMMA shaders.
 
 ## Next action
-Wait for owner logs from the RX 6600 (normal run + `EDEN_NX2_PIPE_TRACE=1` run). PR #1 stays unmerged.
+1. Owner re-enables GitHub Actions (Settings -> Actions -> General), then re-run the Windows workflow
+   on `test/amd-hmma-pipeline-trace` (workflow_dispatch) to build and verify `37c813a`.
+2. Wait for owner logs from the RX 6600 (normal run + `EDEN_NX2_PIPE_TRACE=1` run). PR #1 stays unmerged.
