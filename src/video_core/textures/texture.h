@@ -176,6 +176,16 @@ static_assert(sizeof(TextureHandle) == 4, "TextureHandle has wrong size");
     return index;
 }
 
+/// True when a resolved TIC index lies inside the descriptor pool (limit is the last valid index).
+[[nodiscard]] constexpr bool TextureHeaderIndexInBounds(u32 index, u32 limit) {
+    return index <= limit;
+}
+
+/// Byte offset of a descriptor in the TIC pool, widened so a large index cannot wrap.
+[[nodiscard]] constexpr u64 TextureHeaderByteOffset(u32 index, u64 entry_size) {
+    return static_cast<u64>(index) * entry_size;
+}
+
 struct TICEntry {
     union {
         struct {

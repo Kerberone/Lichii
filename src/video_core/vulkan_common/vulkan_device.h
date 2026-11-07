@@ -372,20 +372,16 @@ public:
     }
 
     /// AMD's own drivers can spend minutes on a software HMMA compute pipeline (Ocarina of
-    /// Time's upscaling network) and then fail it with VK_ERROR_OUT_OF_HOST_MEMORY. Such
-    /// pipelines are built on their own worker and their dispatches skipped until they exist,
-    /// instead of stalling the GPU thread. EDEN_NX2_DEFER_MATRIX_PIPELINES=1 forces this on any
-    /// driver, =0 turns it off.
+    /// Time's upscaling network). Deferring such builds skips the guest dispatches until the
+    /// pipeline exists, which drops game output, so it is off by default and the first dispatch
+    /// waits for the build instead. EDEN_NX2_DEFER_MATRIX_PIPELINES=1 restores the skipping
+    /// policy as a fidelity-breaking diagnostic.
     bool DefersSoftwareMatrixPipelines() const {
-        static const char forced = [] {
+        static const bool enabled = [] {
             const char* value = std::getenv("EDEN_NX2_DEFER_MATRIX_PIPELINES");
-            return value == nullptr ? '\0' : value[0];
+            return value != nullptr && value[0] == '1';
         }();
-        if (forced == '0' || forced == '1') {
-            return forced == '1';
-        }
-        const VkDriverIdKHR id = GetDriverID();
-        return id == VK_DRIVER_ID_AMD_PROPRIETARY || id == VK_DRIVER_ID_AMD_OPEN_SOURCE;
+        return enabled;
     }
 
     /// Returns true for tile-based deferred renderers.

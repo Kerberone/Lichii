@@ -23,6 +23,19 @@ TEST_CASE("Native header offsets decode only when the shifted index is valid",
     REQUIRE(TextureHeaderIndex(32, 0, true) == 32);
 }
 
+TEST_CASE("TIC bounds treat the limit as the last valid index and never wrap",
+          "[video_core][texture_header_index]") {
+    using Tegra::Texture::TextureHeaderByteOffset;
+    using Tegra::Texture::TextureHeaderIndexInBounds;
+    constexpr u32 maximum = std::numeric_limits<u32>::max();
+    REQUIRE(TextureHeaderIndexInBounds(0, 0));
+    REQUIRE(TextureHeaderIndexInBounds(63, 63));
+    REQUIRE_FALSE(TextureHeaderIndexInBounds(64, 63));
+    REQUIRE_FALSE(TextureHeaderIndexInBounds(maximum, 63));
+    REQUIRE(TextureHeaderByteOffset(maximum, 32) == static_cast<u64>(maximum) * 32);
+    REQUIRE(TextureHeaderByteOffset(2, 32) == 64);
+}
+
 TEST_CASE("Resolved texture indices stay unchanged for both memory layouts",
           "[video_core][texture_header_index]") {
     using Tegra::Texture::TextureHeaderIndex;
