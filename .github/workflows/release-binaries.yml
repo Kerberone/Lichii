@@ -6,6 +6,7 @@ on:
     branches:
       - audit/windows-pgo-validated
       - test/amd-hmma-pipeline-trace
+      - experiment/frizti-v3-amd-ports
     # A binary only changes when build inputs change; docs-only pushes skip the build.
     paths:
       - "src/**"
@@ -30,7 +31,7 @@ permissions:
 env:
   PGO_LLVM_VERSION: "23"
   # Experimental build identifier: artifact name and the build's release tag string.
-  LICHII_BUILD_ID: amd-hmma-trace-build-4
+  LICHII_BUILD_ID: frizti-v3-affinity-experiment
 
 # Windows-only experimental build. Artifacts are saved to the workflow run; no release is published.
 concurrency:
