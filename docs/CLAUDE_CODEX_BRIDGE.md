@@ -18,19 +18,28 @@ It does not install or activate a paid OpenAI/Anthropic API integration.
    Do **not** add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
 4. Merge this workflow *only when ready to test*. The workflow file alone is
    insufficient: both the GitHub App and a working secret are required.
-5. Test with an **owner-authored comment** on a trusted Lichii PR:
+5. Test with an **owner-authored comment** on an open Lichii PR whose head branch
+   belongs to Kerberone and is **not `nx2`**. The command must **start** the comment:
    `@claude Please review the most recent Codex findings without making changes.`
-   Inspect the Actions run and Claude's PR response.
+   Incidental mentions elsewhere in a comment are deliberately ignored. Inspect
+   the Actions run and Claude's PR response.
 6. After confirming authentication, the second job can automatically perform
    a limited read-only follow-up on new Codex **review submissions** (not on
    every bot comment). No automated merge or push is allowed in that job.
 
 ## Workflow behavior and limits
 
-- Only comments from the **Kerberone** GitHub user may manually invoke Claude;
-  the PR must belong to this repository and must have been opened by Kerberone.
+- Only comments from the **Kerberone** GitHub user that **start** with `@claude `
+  (or are exactly `@claude`) may manually invoke Claude; comments with the
+  standard Claude Code footer are explicitly excluded to reduce self-triggering.
+  A GitHub tool posting as Kerberone cannot otherwise be distinguished from a
+  human posting as Kerberone. The PR must belong to this repository, be open,
+  use a non-default feature branch and have been opened by Kerberone.
 - The automatic job runs only when the **Codex connector bot** submits a review
-  containing the Codex review receipt on an open PR owned by Kerberone.
+  containing the Codex review receipt on an open PR owned by Kerberone **and**
+  the review has an inline finding with the Codex finding marker. Clean reviews
+  do not consume Claude usage. Each job checks out the explicitly identified
+  PR commit; the automatic job is read-only.
 - Its token has *read-only source* permissions, and its Claude tool list is
   restricted to reading/grepping. It is **not** an automated code-fixer.
   To request a correction, the owner can comment `@claude Fix the confirmed
@@ -39,7 +48,13 @@ It does not install or activate a paid OpenAI/Anthropic API integration.
   Claude's response is published on GitHub, where ChatGPT can read it during
   a later check. GitHub comments do **not** directly wake this ChatGPT thread.
 - No changes are pushed directly to `nx2`; human review and merge remain required.
-- This workflow will **not** run until merged into `nx2`.
+- This workflow will **not** run until merged into `nx2`. GitHub evaluates
+  some review event workflows against the PR base branch; PR #1 currently
+  targets `audit/windows-pgo-validated`, so the automatic follow-up may not
+  run there until the workflow exists in that base branch or future PRs target
+  `nx2`. The manual command uses the workflow on the default branch.
+- The action versions are pinned to their verified commit hashes rather
+  than mutable tags.
 - It won't automatically start an existing claude.ai web conversation: it
   launches a new Claude Code action run with the PR context.
 
