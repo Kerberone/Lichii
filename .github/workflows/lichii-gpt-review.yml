@@ -1,0 +1,53 @@
+name: Lichii GPT PR review
+
+# A new push to a PR branch fires pull_request.synchronize.
+# This intentionally does not auto-merge, run PR code, or change source files.
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: "Number of the PR to review"
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: lichii-gpt-review-${{ github.event.pull_request.number || github.event.issue.number || inputs.pull_request || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Never send third-party PRs to a billed API. Comments require trusted authors
+    # and the explicit @gpt-review trigger to prevent spam and reply loops.
+    if: >-
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       !github.event.pull_request.draft) ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       contains(github.event.comment.body, '@gpt-review') &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Only execute reviewer code from the trusted default branch.
+          ref: nx2
+          persist-credentials: false
+      - name: Review PR with OpenAI
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.LICHII_OPENAI_MODEL || 'gpt-6-astra' }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pull_request }}
+        run: python3 .github/scripts/lichii_gpt_review.py
