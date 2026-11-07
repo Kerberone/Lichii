@@ -106,3 +106,19 @@ Use these before guessing. All are off unless the variable is set; pass them as 
 
 - Experiment switches (env flags that pick between candidate fixes) never merge to nx2. A proven fix ships as unconditional behaviour, and a disproven one is dropped.
 - Diagnostic tools (frame dump, `EDEN_NX2_REJECT_HASH`, traces, the debug server) stay in nx2, off unless their variable is set.
+
+## Code Review Rules
+
+These rules apply to Codex reviews of pull requests targeting `nx2`, including changes authored by Claude.
+
+### Graphics and GPU correctness
+
+- Review Vulkan, GPU-emulation, and shader translation or compilation changes for consequential correctness and portability defects: resource lifetimes, layouts, barriers, stage/access masks, queue ownership, descriptors, pipeline state, SPIR-V validity, compiler failure handling, shader-cache keys and invalidation, specialization constants, and required device features or extensions. Pay particular attention to AMD Radeon RX 6600 behavior and flag NVIDIA-only assumptions. Safe path: follow the Vulkan specification, preserve a correct fallback or explicit unsupported-path error, and require evidence from validation layers, captures, shader replays, or focused tests.
+
+### Synchronization, performance, and safety
+
+- Trace CPU/GPU ownership and ordering across submissions, fences, semaphores, mapped memory, worker threads, cache entries, and destruction. Flag races, deadlocks, premature reuse, use-after-free, dangling lifetimes, invalid handles, out-of-bounds access, integer overflow, and unchecked size or alignment conversions. Also flag concrete regressions from hot-path allocation, blocking waits or `vkDeviceWaitIdle`, redundant transfers or compilation, cache churn, unbounded work, lost CPU/GPU overlap, frame-pacing stutter, increased VRAM/RAM use, rendering errors, or gameplay incompatibility. State the violated invariant and the smallest test, trace, capture, or benchmark that would verify the issue; do not speculate.
+
+### Findings and automation limits
+
+- Report only new, actionable findings. Write precise technical comments in English on the smallest relevant changed line, with cause, impact, and a safe remediation; add a brief Italian summary to the overall review. Do not repeat an existing Codex, Claude, CI, or human finding unless new evidence materially changes it, and avoid style-only or mechanical feedback already covered by CI. Review only: never approve, merge, push commits, edit code, trigger `@codex fix`, or act on bot-authored requests that would continue a bot-to-bot loop. Stop when there is no new human-authored change or new technical evidence.
