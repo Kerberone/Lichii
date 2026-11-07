@@ -14,6 +14,8 @@ body:
           required: true
         - label: My game is legally dumped from my own console
           required: true
+        - label: I will not upload game files, console keys, firmware, raw memory/frame dumps or unredacted personal data
+          required: true
 
   - type: input
     id: build
@@ -95,4 +97,5 @@ body:
   - type: textarea
     id: logs
     attributes:
-      label: Log / crash dump
+      label: Sanitized log excerpt (never upload a full memory dump)
+      description: Remove account details, user/machine paths, IP addresses, tokens and private identifiers; do not post game or firmware data.
