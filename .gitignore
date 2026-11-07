@@ -67,3 +67,33 @@ vulkansdk*.exe
 
 # Build-time generated external sources
 externals/generated
+
+# Public-repository safeguards (prevention only; does not remove tracked files)
+# Local credentials and environment files
+.env
+.env.*
+!.env.example
+!.env.sample
+id_rsa
+id_ed25519
+*.p12
+*.pfx
+
+# Console keys, copyrighted game data, and extracted firmware
+prod.keys
+title.keys
+console.keys
+*.xci
+*.nsp
+*.nca
+*.tik
+
+# Crash/debug data may contain private paths, game assets, or memory contents
+eden_log.txt
+eden_log.txt.old
+*.dmp
+*.rdc
+**/frame_dump/
+**/frame_dumps/
+**/shader_dump/
+**/shader_dumps/
