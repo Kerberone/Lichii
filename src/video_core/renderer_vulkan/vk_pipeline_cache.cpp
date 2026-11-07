@@ -833,6 +833,8 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     if (!pipeline_cache_filename.empty()) {
         background_pipelines.Stop();
         workers.WaitForRequests();
+        // Deferred builds use vulkan_pipeline_cache, which the reload below replaces.
+        deferred_workers.WaitForRequests();
         serialization_thread.WaitForRequests();
         if (use_vulkan_pipeline_cache && !vulkan_pipeline_cache_filename.empty()) {
             SerializeVulkanPipelineCache(vulkan_pipeline_cache_filename, vulkan_pipeline_cache,
@@ -890,6 +892,17 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         file.read(reinterpret_cast<char*>(&key), sizeof(key));
 
         workers.QueueWork([this, key, env_ = std::move(env), &state, &callback]() mutable {
+            {
+                // A reload finds the pipelines of the previous load already in the cache.
+                std::scoped_lock lock{state.mutex};
+                if (compute_cache.contains(key)) {
+                    ++state.built;
+                    if (state.has_loaded) {
+                        callback(VideoCore::LoadCallbackStage::Build, state.built, state.total);
+                    }
+                    return;
+                }
+            }
             ShaderPools pools;
             const auto trace_begin = std::chrono::steady_clock::now();
             if (PipeTrace::Enabled()) {
@@ -902,7 +915,10 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
                           PipeTrace::Ms(trace_begin));
             }
             std::scoped_lock lock{state.mutex};
-            if (entry.pipeline) {
+            if (entry.pipeline && compute_cache.contains(key)) {
+                // A duplicate key in the file: a deferred build may still use this pipeline.
+                retired_compute_pipelines.push_back(std::move(entry.pipeline));
+            } else if (entry.pipeline) {
                 compute_cache.emplace(key, std::move(entry));
             }
             ++state.built;
