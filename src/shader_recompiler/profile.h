@@ -104,6 +104,8 @@ struct Profile {
     /// Some drivers have broken support for OpVectorExtractDynamic on subgroup mask inputs
     bool has_broken_spirv_subgroup_mask_vector_extract_dynamic{};
     bool has_broken_spirv_subgroup_shuffle{};
+    /// Emit fragment-stage shuffles as OpGroupNonUniformBroadcast + select (other stages unchanged)
+    bool fragment_subgroup_shuffle_fallback{};
     u32 max_subgroup_size{};
 
     u32 gl_max_compute_smem_size{};

@@ -568,6 +568,10 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
             driver_id == VK_DRIVER_ID_QUALCOMM_PROPRIETARY &&
             device.GetDriverVersion() < VK_MAKE_VERSION(512, 672, 0),
         .has_broken_spirv_subgroup_shuffle = driver_id == VK_DRIVER_ID_QUALCOMM_PROPRIETARY,
+        .fragment_subgroup_shuffle_fallback = []() {
+            const char* const value = std::getenv("EDEN_NX2_FRAGMENT_SHUFFLE_FALLBACK");
+            return value != nullptr && value[0] == '1';
+        }(),
         .max_subgroup_size = device.GetMaxSubgroupSize(),
         .has_broken_robust =
             device.IsNvidia() && device.GetNvidiaArch() <= NvidiaArchitecture::Arch_Pascal,
